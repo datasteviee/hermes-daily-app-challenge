@@ -1,0 +1,15 @@
+name: ExampleApp
+options:
+  bundleIdPrefix: com.steviee
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  ExampleApp:
+    type: application
+    platform: iOS
+    sources:
+      - src
+    resources:
+      - Resources
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.steviee.exampleapp
