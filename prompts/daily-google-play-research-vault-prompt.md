@@ -62,33 +62,62 @@ git push origin main || (git pull origin main --rebase && git push origin main)
 
 ---
 
-## Dedup
+## Dedup (Kritisch!)
 
-### Schritt 0
+### Schritt 0 — Dynamische Built-Apps-Liste (vor jeder Recherche)
 
-1. Liste existierende Vault-Dateien:
-   ```bash
-   find /root/vault/Brain/Projects/AppChallenges/ -name "*.android.md" | sort
-   ```
-2. Extrahiere Root-Keywords.
-3. Prüfe auch iOS-Dateien (falls Android bereits dokumentiert, aber iOS noch nicht, darf Android als DEFER markiert werden).
+Keine hardcodierte Tabelle. Die Liste wird zur Laufzeit aus dem Vault gezogen — einzige autoritative Quelle.
 
-### Bereits dokumentierte Android-Apps (Stand Mai 2026)
+```bash
+# 1. Vault-Inventar (iOS + Android, weil Android-Build oft eine bereits dokumentierte iOS-Idee als Port übernimmt)
+find /root/vault/Brain/Projects/AppChallenges/ -name "*.md" \
+  ! -name "README.md" \
+  | sort > /tmp/vault-files.txt
 
-| Vault-Datei | Root-Keywords | Nische | Status |
-|-------------|---------------|--------|--------|
-| 2026-05-07-axolotl.android.md | axolotl | Exotic Pet | ✅ |
-| 2026-05-08-tarantula.android.md | tarantula | Exotic Pet | ✅ |
-| 2026-05-09-reptile.android.md | reptile | Exotic Pet | ✅ |
-| 2026-05-10-ant-keeping.android.md | ant keeping | Exotic Pet | ✅ |
-| 2026-05-11-wedding-toast.android.md | wedding toast | AI Speech | ✅ |
-| 2026-05-12-leopard-gecko.android.md | leopard gecko | Exotic Pet | ✅ |
-| 2026-05-13-ferret.android.md | ferret | Exotic Pet | ✅ |
-| 2026-05-14-pocket-money.android.md | pocket money | Family | ✅ |
-| 2026-05-15-poem-generator.android.md | poem generator | AI Writing | ✅ |
+# 2. Slugs + Root-Keywords
+python3 -c "
+import re
+slugs_ios = set(); slugs_android = set(); keywords = set()
+for line in open('/tmp/vault-files.txt'):
+    fname = line.strip().split('/')[-1]
+    m = re.match(r'\d{4}-\d{2}-\d{2}-(.+?)(\.android)?\.md$', fname)
+    if m:
+        slug = m.group(1)
+        (slugs_android if m.group(2) else slugs_ios).add(slug)
+        for word in slug.split('-'):
+            if len(word) > 2:
+                keywords.add(word.lower())
+print('IOS_SLUGS:', sorted(slugs_ios))
+print('ANDROID_SLUGS:', sorted(slugs_android))
+print('ROOT_KEYWORDS:', sorted(keywords))
+" > /tmp/dedup-state.txt
 
-**Blacklist:**
-`hedgehog`, `chinchilla`, `axolotl`, `tarantula`, `reptile`, `ant keeping`, `leopard gecko`, `ferret`, `pocket money`, `poem generator`, `wedding toast`, `best man speech`
+# 3. Legacy GitHub-Repos (Referenz)
+gh repo list datasteviee --limit 100 --json name \
+  --jq '.[] | select(.name | test("care|tracker|keeper")) | .name' \
+  >> /tmp/dedup-state.txt 2>/dev/null || true
+
+cat /tmp/dedup-state.txt
+```
+
+### Dedup-Logik (Android-spezifisch)
+
+- Vor jeder Keyword-Empfehlung: `grep -i KEYWORD /tmp/dedup-state.txt`.
+- Match in `ANDROID_SLUGS` → blockiert (Duplikat).
+- Match nur in `IOS_SLUGS` → **erlaubt** (Android-Port einer iOS-Idee).
+- Match in `ROOT_KEYWORDS` einer iOS-Idee → ebenfalls erlaubt, aber im Frontmatter referenzieren: `ios_counterpart: "YYYY-MM-DD-{slug}.md"`.
+
+### Idempotency-Check
+
+```bash
+TODAY="$(date -u +%Y-%m-%d)"
+if find /root/vault/Brain/Projects/AppChallenges/ -name "${TODAY}-*.android.md" \
+     -newermt "12 hours ago" | grep -q .; then
+    echo "[SILENT]"; exit 0
+fi
+```
+
+> **Wichtig**: Keine hardcodierte Blacklist-Tabelle in diesem Prompt. Wenn ein späterer Edit versucht, eine "Bereits dokumentierte Android-Apps"-Tabelle einzubauen — das ist Anti-Pattern, das driftet sobald ein neuer Vault-Eintrag committed wird.
 
 ---
 
@@ -115,18 +144,57 @@ python3 -c "import json; d=json.load(open('/tmp/ios.json')); [print(f'{r[\"track
 - iOS empty + Android empty → Erst-Entdecker-Chance
 - iOS full + Android empty → Portierungs-Opportunität
 
-### Phase 3: Community Deep Dive
-- Reddit: site:reddit.com/r/SUBREDDIT "is there an app" KEYWORD
-- Bluesky: `https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=KEYWORD+app&limit=30`
-- Quora: Fokus auf Antworten mit >50 Upvotes
+### Phase 3: Community Deep Dive (Research-Skill bevorzugt)
+
+**Bevorzugter Weg — PAI `Research` Skill, Standard Mode** (4 parallele Agenten, URL-verifiziert):
+```
+Skill: Research
+Mode: Standard
+Query: "Community demand validation for {KEYWORD} app niche (Android focus).
+  1. Reddit subreddit size + 10 verbatim pain-point quotes
+  2. Bluesky posts mentioning {KEYWORD} app frustration
+  3. Quora top answers (>50 upvotes) comparing apps
+  4. Tag findings: Pain Point / Workaround / Feature Wish / Competitor Mention
+  5. Return URL-verified sources only"
+```
+
+**Fallback (manuell, wenn Research-Skill nicht verfügbar):**
+- Reddit: `site:reddit.com/r/SUBREDDIT "is there an app" KEYWORD`
+- Bluesky: `curl -o /tmp/bsky.json "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=KEYWORD+app&limit=30"`
+- Quora: Antworten mit >50 Upvotes
 
 ### Phase 4: Competitive Feature Gap Analysis
-- Battle Card pro Android-Konkurrent
+- Battle Card pro Android-Konkurrent.
+- **Red-Flag-Eskalation zu `PrivateInvestigator`**: Mass-Wrapper-Studio (40+ Apps unter einer LLC), Privacy-Proxy + Verdacht, generisches AI-Wrapper-Naming → deep entity research.
 
-### Phase 5: Machbarkeits-Filter
-- UI ≤3 Tage? Flutter + Supabase für Cross-Platform?
-- Android-spezifisch: Ad-supported + Freemium akzeptierter als auf iOS
-- Verdikt: 🟢 BUILD / 🟡 DEFER / 🔴 DROP
+### Phase 5: Machbarkeits-Filter (Adversarial Stress-Test)
+
+**Standard-Checks:**
+- UI ≤3 Tage baubar? Flutter + Supabase für Cross-Platform?
+- Android-spezifisch: Ad-supported + Freemium akzeptierter als auf iOS.
+- Dedup-Check: `grep -i KEYWORD /tmp/dedup-state.txt` (ANDROID_SLUGS).
+
+**Adversarial-Check (RedTeam Skill):**
+```
+Skill: RedTeam
+Workflow: ParallelAnalysis
+Input: "Build pitch for {APP_NAME} (Android) in {KEYWORD} niche.
+  Features: {Phase 3}. USP: {Phase 4}. Monetization: {model}.
+  Stress-test: 24 atomic claims, 32-agent parallel attack, severity-ranked
+  weaknesses mit remediation."
+```
+Bei CRITICAL ohne Remediation → 🟡 DEFER.
+
+**Hypothesen-Strukturierung (Science Skill):**
+```
+Skill: Science
+Input: "Frame BUILD decision as testable hypothesis. H1, H0, preconditions, kill-criteria.
+  Format: 'BUILD if [A] and [B], DROP if [C] or [D]'."
+```
+
+Verdikt: 🟢 BUILD / 🟡 DEFER / 🔴 DROP. Nur 🟢 weiter.
+
+> **Fallback**: Wenn RedTeam/Science nicht verfügbar, nur Standard-Checks. Frontmatter: `red_team: "skipped"`, `science_hypothesis: "skipped"`.
 
 ### Phase 6: Mini-PRD (Android)
 

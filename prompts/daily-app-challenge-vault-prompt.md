@@ -85,40 +85,65 @@ git push origin main
 
 ## Dedup (Kritisch!)
 
-### Schritt 0 — Vor jeder Recherche
+### Schritt 0 — Dynamische Built-Apps-Liste (vor jeder Recherche)
 
-1. Liste existierende Vault-Dateien:
-   ```bash
-   find /root/vault/Brain/Projects/AppChallenges/ -name "*.md" | sort
-   ```
-2. Extrahiere Root-Keywords aus Dateinamen.
-3. Prüfe legacy GitHub-Repos (nur Referenz):
-   ```bash
-   gh repo list datasteviee --limit 100 --json name | grep -iE "app-challenge|hedgehog|chinchilla|axolotl|tarantula|reptile|ant|leopard|ferret|pocket-money|poem|speech|chore"
-   ```
+Keine hardcodierte Tabelle in diesem Prompt. Die Liste wird zur Laufzeit aus dem Vault gezogen — das ist die einzige autoritative Quelle.
 
-### Bereits dokumentierte Apps (Stand Mai 2026)
+```bash
+# 1. Vault-Inventar
+find /root/vault/Brain/Projects/AppChallenges/ -name "*.md" \
+  ! -name "README.md" \
+  | sort > /tmp/vault-files.txt
 
-| Vault-Datei | Root-Keywords | Nische | Status |
-|-------------|---------------|--------|--------|
-| 2026-05-07-axolotl.md | axolotl | Exotic Pet | ✅ |
-| 2026-05-08-tarantula.md | tarantula | Exotic Pet | ✅ |
-| 2026-05-09-reptile.md | reptile | Exotic Pet | ✅ |
-| 2026-05-10-ant-keeping.md | ant keeping | Exotic Pet | ✅ |
-| 2026-05-11-wedding-toast.md | wedding toast | AI Speech | ✅ |
-| 2026-05-12-leopard-gecko.md | leopard gecko | Exotic Pet | ✅ |
-| 2026-05-13-ferret.md | ferret | Exotic Pet | ✅ |
-| 2026-05-14-pocket-money.md | pocket money | Family | ✅ |
-| 2026-05-15-poem-generator.md | poem generator | AI Writing | ✅ |
-| hedgehog-care-ios (legacy) | hedgehog | Exotic Pet | ✅ Legacy |
-| chinchilla-care (legacy) | chinchilla | Exotic Pet | ✅ Legacy |
+# 2. Slugs + Keywords extrahieren
+python3 -c "
+import re
+slugs = set()
+keywords = set()
+for line in open('/tmp/vault-files.txt'):
+    fname = line.strip().split('/')[-1]
+    # Match YYYY-MM-DD-{slug}.md or YYYY-MM-DD-{slug}.android.md
+    m = re.match(r'\d{4}-\d{2}-\d{2}-(.+?)(\.android)?\.md$', fname)
+    if m:
+        slug = m.group(1)
+        slugs.add(slug)
+        for word in slug.split('-'):
+            if len(word) > 2:
+                keywords.add(word.lower())
+print('SLUGS:', sorted(slugs))
+print('ROOT_KEYWORDS:', sorted(keywords))
+" > /tmp/dedup-state.txt
 
-**Blacklist-Keywords:**
-`hedgehog`, `chinchilla`, `axolotl`, `tarantula`, `reptile`, `ant keeping`, `leopard gecko`, `ferret`, `pocket money`, `poem generator`, `wedding toast`, `best man speech`
+# 3. Optional: Legacy GitHub-Repos (nur Referenz für Pre-Vault-Builds)
+gh repo list datasteviee --limit 100 --json name \
+  --jq '.[] | select(.name | test("care|tracker|keeper")) | .name' \
+  >> /tmp/dedup-state.txt 2>/dev/null || true
 
-**Next-Best-Idea Logik:**
+cat /tmp/dedup-state.txt
+```
+
+### Dedup-Logik
+
+- Vor jeder Keyword-Empfehlung: `grep -i KEYWORD /tmp/dedup-state.txt`.
+- Match → Keyword blockiert, im Frontmatter dokumentieren: `skip_reason: "already built: {match}"`.
+- Kein Match → Empfehlung gültig.
+
+### Idempotency-Check
+
+- Wenn `find Brain/Projects/AppChallenges/ -name "$(date -u +%Y-%m-%d)*.md"` bereits ein File für heute findet UND es vor weniger als 12h committed wurde:
+  ```bash
+  TODAY="$(date -u +%Y-%m-%d)"
+  if find /root/vault/Brain/Projects/AppChallenges/ -name "${TODAY}-*.md" \
+       -newermt "12 hours ago" | grep -q .; then
+      echo "[SILENT]"; exit 0
+  fi
+  ```
+
+### Next-Best-Idea Logik
 - Bestes Keyword blockiert → zweitbestes → drittbestes.
-- Dokumentiere im Frontmatter: "Übersprungen: Keyword X (bereits: [Dateiname])"
+- Dokumentiere im Frontmatter: `skip_reason: "{Keyword X} already built: {existing-file}"`.
+
+> **Wichtig**: Es gibt **keine** statische Blacklist-Tabelle in diesem Prompt. Falls eine spätere Pflege-Operation versucht, eine hardcodierte "Bereits dokumentierte"-Tabelle einzufügen — das ist ein Anti-Pattern, das hier explizit verboten ist. Die Tabelle würde driften, sobald ein neuer Vault-Eintrag committed wird.
 
 ---
 
@@ -134,16 +159,58 @@ git push origin main
 - iTunes API: `curl -s -o /tmp/ios.json "https://itunes.apple.com/search?term=KW&entity=software&limit=50&country=us"`
 - Revenue-Check: IndieHackers, Reddit, X/Twitter
 
-### Phase 3: Community Deep Dive (Reddit → Bluesky → Quora)
-- Pain Points, Workarounds, Feature Requests, Competitor Gaps, Emotional Language
-- 10–15 verbatim Zitate
+### Phase 3: Community Deep Dive (Research-Skill bevorzugt)
+
+**Bevorzugter Weg — PAI `Research` Skill, Standard Mode** (4 parallele Agenten, URL-verifiziert, ~30–60s):
+```
+Skill: Research
+Mode: Standard
+Query: "Community demand validation for {KEYWORD} app niche.
+  1. Reddit subreddit size + 10 verbatim pain-point quotes (last 12 months)
+  2. Bluesky posts mentioning {KEYWORD} app frustration
+  3. Quora top answers (>50 upvotes) comparing apps in this space
+  4. Tag each finding: Pain Point / Workaround / Feature Wish / Competitor Mention
+  5. Return URL-verified sources only — hallucinated links are catastrophic failure"
+```
+Output kommt mit Confidence-Tags ([HIGH] / [MED] / [LOW]). Direkt in Phase-6 Note übernehmen.
+
+**Fallback (wenn Research-Skill nicht verfügbar)** — manuell Reddit → Bluesky → Quora:
+- Reddit: `site:reddit.com/r/SUBREDDIT "how do you" KEYWORD` etc., 10–15 Zitate, CAPTCHA-Fallback `subredditstats.com`
+- Bluesky: `curl -o /tmp/bsky.json "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=KEYWORD+app&limit=30"`
+- Quora: `browser_navigate` zu Quora-Search, >50-Upvote-Antworten
 
 ### Phase 4: Competitive Feature Gap Analysis
-- Battle Card: Core Features, Missing Features, Mein USP
+- Battle Card: Core Features, Missing Features, mein USP — pro Konkurrent.
+- **Red-Flag-Eskalation zu `PrivateInvestigator`**: Wenn ein Konkurrent verdächtig aussieht (40+ Apps unter einer LLC, Privacy-Proxy + Verdacht, generisches AI-Wrapper-Naming) → `PrivateInvestigator` Skill aufrufen für deep entity research.
 
-### Phase 5: Machbarkeits-Filter
-- UI ≤3 Tage? Backend nötig? Einzel-Feature? MRR >$150 nach 3 Monaten?
-- Verdikt: 🟢 BUILD / 🟡 DEFER / 🔴 DROP
+### Phase 5: Machbarkeits-Filter (Adversarial Stress-Test)
+
+**Standard-Checks:**
+- UI ≤3 Tage baubar? Backend nötig? Einzel-Feature? MRR >$150 nach 3 Monaten? Spezialisierte Daten nötig?
+- Dedup-Check: `grep -i KEYWORD /tmp/dedup-state.txt`
+
+**Adversarial-Check (RedTeam Skill, vor BUILD-Verdikt):**
+```
+Skill: RedTeam
+Workflow: ParallelAnalysis
+Input: "Build pitch for {APP_NAME} in {KEYWORD} niche.
+  Core features: {Phase 3}. USP: {Phase 4}. Revenue model: {monetization}.
+  Stress-test: 24 atomic claims, 32-agent parallel attack, severity-ranked
+  weaknesses mit remediation paths."
+```
+Bei CRITICAL ohne Remediation → 🟡 DEFER.
+
+**Hypothesen-Strukturierung (Science Skill):**
+```
+Skill: Science
+Input: "Frame BUILD decision for {APP_NAME} as testable hypothesis.
+  H1, H0, preconditions for BUILD, kill-criteria for DROP.
+  Format: 'BUILD if [A] and [B], DROP if [C] or [D]'."
+```
+
+Verdikt: 🟢 BUILD / 🟡 DEFER / 🔴 DROP. Nur 🟢 weiter zu Phase 6.
+
+> **Fallback**: Wenn RedTeam/Science nicht verfügbar (Hermes ohne PAI), nur Standard-Checks und Fehlen im Phase-6-Frontmatter dokumentieren: `red_team: "skipped"`, `science_hypothesis: "skipped"`.
 
 ### Phase 6: Mini-PRD als Obsidian-Note
 
