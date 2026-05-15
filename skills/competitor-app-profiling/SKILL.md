@@ -1,34 +1,49 @@
 ---
 name: competitor-app-profiling
 description: >
-  Reverse-engineer a rival indie app developer's full portfolio, business model, and estimated performance. 
-  Uses domain whois, website scraping, iTunes Search API, App Store ratings, and Play Store heuristics.
-  Trigger when the user asks "who is behind X", "what apps does Y have", "how many downloads does Z have",
-  or any competitive intel request against an app, developer name, or domain.
-tags: [competitive-intelligence, app-store, market-research, aso, reverse-engineering, downloads-estimation]
+  Profile a rival indie app developer's full portfolio, business model, and estimated performance.
+  Uses iTunes Search API, App Store ratings, Play Store install ranges. For DEEP entity background
+  (legal entity history, founder LinkedIn, alternate domains, prior projects), delegates to the
+  PAI PrivateInvestigator skill. Trigger when the user asks "who is behind X", "what apps does Y have",
+  "how many downloads does Z have", or any competitive intel request.
+tags: [competitive-intelligence, app-store, market-research, aso, reverse-engineering]
 ---
 
 # Competitor App Developer Profiling
 
-Systematically profile an indie app developer (or studio) using only public APIs and data. No private tools required.
+Two-mode skill: **light-touch app-store-only profiling** (this file) for cron-fast iterations, and **deep entity research** (delegate to `PrivateInvestigator`) when the developer is suspicious, anonymized, or worth understanding deeply.
+
+## Mode Selection
+
+| Question | Use this skill (light) | Delegate to PrivateInvestigator (deep) |
+|---|---|---|
+| "How many apps does this dev have on iOS?" | ✅ | ❌ (overkill) |
+| "Avg rating + review count across portfolio?" | ✅ | ❌ |
+| "Estimated downloads from review count?" | ✅ | ❌ |
+| "Who is the legal entity behind this app?" | partial (sellerName only) | ✅ |
+| "Is this a mass-wrapper studio or a real solo indie?" | infer from portfolio velocity | ✅ |
+| "Founder LinkedIn, prior startups, accelerator history?" | ❌ | ✅ |
+| "Alternate domains, registered email, whois history?" | ❌ | ✅ |
+| "Is this developer monetizing via shady patterns?" | ❌ | ✅ |
+
+**Default for cron jobs**: stay light. Only escalate to PrivateInvestigator when a Phase 4 competitor in `indie-app-opportunity-research` looks like a Top-3 threat AND a portfolio scan reveals red flags (40+ apps from same entity, generic AI-wrapper naming, etc.).
 
 ## Trigger Conditions
-
-- User asks about an app developer, domain, or specific app by name/descriptor
-- User wants to know "how many downloads", "revenue", "what else they have"
+- User asks about an app developer, domain, or specific app by name
+- User wants "how many downloads", "revenue", "what else they have"
 - Competitive research on App Store / Play Store rivals
 - Evaluating whether a niche is saturated based on existing players
 
-## Workflow
+---
 
-### 1. Domain & Legal Identity
+## Light-Touch Workflow (this skill)
+
+### 1. Domain & Legal Identity (quick)
 ```bash
 whois DOMAIN
 ```
-- Registrar (GoDaddy, Namecheap, etc.)
-- Registration date / expiry (indicates how established)
-- Privacy proxy vs. real registrant data
-- DNS nameservers
+- Registrar, registration date, privacy proxy vs. real registrant, DNS nameservers
+- If privacy-proxied AND the dev is a Phase 4 threat → **escalate to PrivateInvestigator**
 
 ### 2. Website Recon
 ```bash
@@ -36,36 +51,37 @@ curl -sL DOMAIN | grep -i -E "(app|store|apple|itunes|id[0-9]|bundle|developer)"
 ```
 - Extract app names, store links, developer IDs
 - Look for structured data (`application/ld+json`)
-- Note: many indie devs use Astro/static sites — inspect the JSON-LD
 
 ### 3. iTunes Search API (Primary Source)
 ```bash
 # by developer name
-curl -s "https://itunes.apple.com/search?term=DEV_NAME&entity=software&limit=200" | python3 -c "import json,sys; d=json.load(stdin); [print(f'{r[\"trackName\"]} | {r[\"sellerName\"]} | id:{r[\"trackId\"]}') for r in d.get('results',[])]"
+curl -s -o /tmp/itunes_dev.json "https://itunes.apple.com/search?term=DEV_NAME&entity=software&limit=200"
+python3 -c "import json; d=json.load(open('/tmp/itunes_dev.json')); [print(f'{r[\"trackName\"]} | {r[\"sellerName\"]} | id:{r[\"trackId\"]}') for r in d.get('results',[])]"
 
-# by artist/developer ID (if known from step 2)
-curl -s "https://itunes.apple.com/lookup?id=ARTIST_ID&entity=software&limit=200" | python3 -c "..."
+# by artist/developer ID
+curl -s -o /tmp/itunes_artist.json "https://itunes.apple.com/lookup?id=ARTIST_ID&entity=software&limit=200"
 
-# by related keyword (competitor discovery in the niche)
-curl -s "https://itunes.apple.com/search?term=KEYWORD&entity=software&limit=10" | python3 -c "..."
+# competitor discovery by keyword
+curl -s -o /tmp/itunes_kw.json "https://itunes.apple.com/search?term=KEYWORD&entity=software&limit=10"
 ```
 
-Key fields to extract per app:
+Key fields:
 - `trackName`, `trackId`, `primaryGenreName`
 - `releaseDate` (portfolio velocity)
 - `formattedPrice`, `price` (monetization model)
 - `userRatingCount`, `averageUserRating`
-- `sellerName`, `artistName` (legal entity behind the app)
+- `sellerName`, `artistName` (legal entity)
 
-### 4b. Niche Competitive Position Check (Optional but powerful)
-After profiling one developer, search the same niche by keyword to see how they rank against *all* competitors:
+### 4. Niche Competitive Position Check
+After profiling one developer, scan the niche to see ranking:
 ```bash
-curl -s "https://itunes.apple.com/search?term=KEYWORD&entity=software&limit=15" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); [print(f'{i+1}. {r.get(\"trackName\",\"\")[:40]:<40} | {r.get(\"sellerName\",\"\")[:25]:<25} | ⭐{r.get(\"averageUserRating\",0)} ({r.get(\"userRatingCount\",0)})') for i,r in enumerate(d.get('results',[]))]"
+curl -s -o /tmp/niche.json "https://itunes.apple.com/search?term=KEYWORD&entity=software&limit=15"
+python3 -c "import json; d=json.load(open('/tmp/niche.json')); [print(f'{i+1}. {r.get(\"trackName\",\"\")[:40]:<40} | {r.get(\"sellerName\",\"\")[:25]:<25} | ⭐{r.get(\"averageUserRating\",0)} ({r.get(\"userRatingCount\",0)})') for i,r in enumerate(d.get('results',[]))]"
 ```
-This reveals whether the developer is a Top-3 player in their claimed niche or irrelevant (common with spray-and-pray portfolios).
 
-Apple publishes **only** `userRatingCount`, not downloads. Use this heuristic ratio:
+### 5. Download Estimation Heuristic
+
+Apple publishes **only** `userRatingCount`, not downloads:
 
 | userRatingCount | Estimated iOS Downloads |
 |-----------------|------------------------|
@@ -77,19 +93,19 @@ Apple publishes **only** `userRatingCount`, not downloads. Use this heuristic ra
 | 1,000–5,000     | 50,000–400,000 |
 | 5,000+          | 250,000+ |
 
-**Assumptions baked in:** 1 review per 20–100 downloads (varies wildly by app quality, paywall timing, and prompt aggressiveness). Free apps with intrusive review prompts skew low (1:20). Premium/subscription apps with silent happy users skew high (1:100+).
+**Assumptions baked in:** 1 review per 20–100 downloads. Free apps with intrusive review prompts skew low (1:20); premium with silent happy users skew high (1:100+).
 
-Always disclose: *"Apple gives no real download numbers — this is a heuristic estimate based on review-to-download ratios observed in the industry."*
+**Always disclose**: *"Apple gives no real download numbers — this is a heuristic estimate based on review-to-download ratios observed in the industry."*
 
-### 5. Play Store Cross-Reference
+### 6. Play Store Cross-Reference
 ```bash
-curl -sL "https://play.google.com/store/apps/dev?id=DEV_ID" | grep -o 'href="/store/apps/details?id=[^"]*"'
+curl -sL -o /tmp/play.html "https://play.google.com/store/apps/dev?id=DEV_ID"
+grep -o 'href="/store/apps/details?id=[^"]*"' /tmp/play.html
 ```
-- Check if same bundle IDs exist on Android
-- Google sometimes shows install ranges (1K+, 10K+, etc.) — watch for ` installs` in page text
-- Use `grep -oP '(?<= )[0-9]+[KM]?\+?(?= installs)'` to extract ranges
+- Same bundle IDs on Android?
+- Google sometimes shows install ranges (1K+, 10K+) — search for ` installs` in page text
 
-### 6. Business Model Inference
+### 7. Business Model Inference (light)
 
 From the app list, infer:
 - **Portfolio strategy**: Spray-and-pray (40+ AI identifier apps) vs. concentrated (1–3 deep products)
@@ -97,7 +113,7 @@ From the app list, infer:
 - **Tech stack**: Camera/vision (AI identifier apps), health sensors, MLKit
 - **Niche density**: How many apps in same category from same dev (indicates keyword farming)
 
-### 7. Output Template
+### 8. Output Template
 
 ```markdown
 ## [Developer/Studio Name] — Profile
@@ -108,43 +124,64 @@ From the app list, infer:
 | **Domain** | [domain] |
 | **Registered** | [whois creation date] |
 | **Registrar** | [GoDaddy/Namecheap/etc] |
-| **Privacy** | [Yes/No — Domains By Proxy?] |
+| **Privacy proxy** | [Yes/No] |
 | **Total Apps** | [count] |
 | **Platforms** | iOS [count] / Android [count] |
 
 ### Portfolio Summary
 | App | Category | Released | ⭐ Ratings | Avg Rating | Est. Downloads |
 |-----|----------|----------|------------|------------|----------------|
-| ... | ... | ... | ... | ... | ... |
 
 ### Top Apps by Estimated Traction
 1. ...
-2. ...
-3. ...
 
 ### Business Model
 - **Strategy**: [spray-and-pray / concentrated / utility farming]
 - **Monetization**: [subscription / IAP / ads / paid]
 - **Release Velocity**: [apps per month]
-- **Pattern**: [what unifies the apps? e.g., "all AI camera scanners"]
+- **Pattern**: [what unifies the apps?]
 
 ### Competitive Assessment
 - [Threat level: low/medium/high]
-- [Why: they have more apps but lower quality per app, etc.]
+- [Why]
+- [Escalate to PrivateInvestigator? Yes/No + reason]
 ```
 
-## Pitfalls
+---
 
+## Deep-Mode Escalation (delegate to PrivateInvestigator)
+
+When the light-touch profile reveals one of these red flags, hand off to the `PrivateInvestigator` skill:
+
+| Red flag | Why escalate |
+|---|---|
+| 40+ apps under one `sellerName` | Mass-wrapper studio; need to understand business model deeply before competing |
+| `sellerName` is a generic LLC + privacy-proxied domain | Anonymized operator; OSINT needed |
+| Top-3 competitor in target niche with active updates + funded look | Worth knowing who they are before going head-to-head |
+| App description copies competitor wording verbatim | Possible IP/reskinning concern; understand legal exposure |
+| Reviews mention "scam", "fake", "doesn't work" repeatedly | Validate business pattern before assuming the niche is monetizable |
+
+**Handoff prompt:**
+```
+Skill: PrivateInvestigator
+Target: {sellerName / legal entity} + {domain} + {linked apps}
+Goal: Identify founder(s), prior projects, accelerator/funding history, alternate
+  domains, and any pattern of behavior (mass-wrapper farming, abandoned portfolios,
+  prior shutdowns). Return structured profile + risk assessment.
+```
+
+---
+
+## Pitfalls
 - iTunes Search API fuzzy-matches by default — filter `sellerName` or `artistName` to dedupe
-- App Store web frontend often returns "An Error Occurred" for dev pages — always use the API
-- Play Store page structure changes frequently, scraping is brittle — use `grep` defensively
+- App Store web frontend often returns "An Error Occurred" — always use the API
+- Play Store structure changes frequently — use `grep` defensively, or `browser_snapshot`
 - `userRatingCount` is lifetime, not monthly — a 5-year-old app with 50 ratings is worse than a 3-month-old with 50
-- Some developers rebrand (`Artmvstd SIA` vs `Maksim Artemov`) — search both
-- Google Play `dev?id=` IDs differ from iTunes `artistId` — they are NOT the same number
-- Privacy-proxied whois tells you nothing about the person, only that they paid for privacy
+- Developers rebrand (e.g. `Artmvstd SIA` vs `Maksim Artemov`) — search both
+- Google Play `dev?id=` differs from iTunes `artistId` — NOT the same number
+- Privacy-proxied whois tells you nothing about the person — escalate to PrivateInvestigator if it matters
 
 ## Variations
-
 - **Single-app focus**: Skip step 2, go straight to `itunes.apple.com/lookup?id=APP_ID`
 - **Niche saturation scan**: Search iTunes by genre/keyword, group by developer, count apps per dev
-- **Revenue estimation**: If you know subscription price × estimated active users (downloads × 5–15% retention). Very rough.
+- **Revenue estimation**: subscription price × estimated active users (downloads × 5–15% retention) — very rough
