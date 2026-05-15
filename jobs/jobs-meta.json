@@ -3,98 +3,26 @@
     {
       "id": "3393cbb19211",
       "name": "daily-app-challenge",
-      "skills": [
-        "indie-app-opportunity-research",
-        "competitor-app-profiling"
-      ],
-      "skill": "indie-app-opportunity-research",
-      "model": null,
-      "provider": null,
-      "base_url": null,
-      "script": null,
-      "context_from": null,
-      "schedule": {
-        "kind": "cron",
-        "expr": "30 5 * * *",
-        "display": "30 5 * * *"
-      },
-      "schedule_display": "30 5 * * *",
-      "repeat": {
-        "times": null,
-        "completed": 20
-      },
-      "enabled": true,
-      "state": "scheduled",
-      "paused_at": null,
-      "paused_reason": null,
-      "created_at": "2026-04-28T12:29:31.800961+02:00",
-      "next_run_at": "2026-05-16T05:30:00+02:00",
-      "last_run_at": "2026-05-15T05:46:14.845455+02:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
-      "deliver": "origin",
-      "origin": null,
-      "enabled_toolsets": [
-        "web",
-        "terminal",
-        "file",
-        "skills",
-        "browser"
-      ],
-      "workdir": null,
-      "prompt_file": "prompts/daily-app-challenge-prompt.md"
+      "schedule": "30 5 * * *",
+      "workdir": "/root/vault",
+      "delivery": "origin",
+      "skills": ["indie-app-opportunity-research", "competitor-app-profiling"],
+      "prompt_file": "prompts/daily-app-challenge-vault-prompt.md",
+      "platform": "ios",
+      "storage_target": "vault"
     },
     {
       "id": "b343f62dc98b",
       "name": "daily-google-play-research",
-      "skills": [
-        "indie-app-opportunity-research",
-        "competitor-app-profiling"
-      ],
-      "skill": "indie-app-opportunity-research",
-      "model": null,
-      "provider": null,
-      "base_url": null,
-      "script": null,
-      "context_from": null,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 6 * * *",
-        "display": "0 6 * * *"
-      },
-      "schedule_display": "0 6 * * *",
-      "repeat": {
-        "times": null,
-        "completed": 14
-      },
-      "enabled": true,
-      "state": "scheduled",
-      "paused_at": null,
-      "paused_reason": null,
-      "created_at": "2026-05-03T12:44:54.608410+02:00",
-      "next_run_at": "2026-05-16T06:00:00+02:00",
-      "last_run_at": "2026-05-15T06:00:44.185101+02:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": null,
-      "deliver": "origin",
-      "origin": {
-        "platform": "telegram",
-        "chat_id": "1424644569",
-        "chat_name": "Stephan E.",
-        "thread_id": null
-      },
-      "enabled_toolsets": [
-        "web",
-        "terminal",
-        "file",
-        "skills",
-        "browser"
-      ],
-      "workdir": null,
-      "prompt_file": "prompts/daily-google-play-research-prompt.md"
+      "schedule": "0 6 * * *",
+      "workdir": "/root/vault",
+      "delivery": "origin",
+      "skills": ["indie-app-opportunity-research", "competitor-app-profiling"],
+      "prompt_file": "prompts/daily-google-play-research-vault-prompt.md",
+      "platform": "android",
+      "storage_target": "vault"
     }
   ],
-  "updated_at": "2026-05-15T06:00:44.185682+02:00"
+  "last_updated": "2026-05-16",
+  "vault_path": "/root/vault/Brain/Projects/AppChallenges"
 }

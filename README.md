@@ -1,71 +1,77 @@
-# Hermes daily-app-challenge
+# Hermes Daily App Challenge — Prompt Archive
 
-Vollständiges Archiv des autonomen Hermes-Cronjobs `daily-app-challenge` und des sister-jobs `daily-google-play-research`.
+> This repository contains the **full agent prompts** and **skill snapshots** for the autonomous daily app research cronjobs.  
+> **Current version:** Vault-based (since 2026-05-16). Previously: GitHub-repo-based (legacy).
 
-## Was ist das?
+---
 
-Ein autonomer Daily-Research-Agent, der jeden Morgen eine in 2–3 Tagen umsetzbare App-Idee findet, validiert, dokumentiert und als Repo bei GitHub anlegt — ohne menschliche Interaktion.
+## Architecture
 
-## Struktur
+| Job | Cronjob ID | Schedule | Target | Storage |
+|-----|-----------|----------|--------|---------|
+| **iOS Research** | `3393cbb19211` | `30 5 * * *` | App Store / iTunes | Obsidian Vault |
+| **Android Research** | `b343f62dc98b` | `0 6 * * *` | Google Play Store | Obsidian Vault |
+
+**Vault path:** `Brain/Projects/AppChallenges/YYYY-W##/`
+
+---
+
+## Files
 
 ```
 .
-├── README.md                               # Diese Datei
+├── README.md                                          # This file
+├── project.yml                                        # xcodegen-style manifest
+├── jobs/
+│   └── jobs-meta.json                                 # Job metadata + IDs
 ├── prompts/
-│   ├── daily-app-challenge-prompt.md       # Vollständiger LLM-Prompt (iOS)
-│   └── daily-google-play-research-prompt.md # Vollständiger LLM-Prompt (Android)
-├── skills/
-│   ├── indie-app-opportunity-research/      # Skill: ASO-Nischenforschung + Mini-PRD
-│   │   ├── SKILL.md                         # Vollständige Skill-Dokumentation (~60K)
-│   │   └── references/cron-safe-commands.md # Sichere Shell-Patterns für Cron
-│   └── competitor-app-profiling/            # Skill: Konkurrenz-Analyse
-│       └── SKILL.md
-└── jobs/
-    └── jobs-meta.json                       # Cron-Job-Metadaten (ohne Prompt)
+│   ├── daily-app-challenge-vault-prompt.md            # Current iOS prompt (vault-based)
+│   ├── daily-google-play-research-vault-prompt.md     # Current Android prompt (vault-based)
+│   ├── daily-app-challenge-prompt.md                  # Legacy prompt (GitHub-repo-based)
+│   └── daily-google-play-research-prompt.md           # Legacy prompt (GitHub-repo-based)
+└── skills/
+    ├── indie-app-opportunity-research/
+    │   └── SKILL.md                                   # Full skill snapshot
+    └── competitor-app-profiling/
+        └── SKILL.md                                   # Full skill snapshot
 ```
 
-## Laufzeit-Umgebung
+---
 
-- **Scheduler:** Hermes Agent Cron-System
-- **ASO-Tool:** RespecASO v2.9.0 (self-hosted, `192.168.41.210`)
-- **GitHub:** `datasteviee/app-challenge-YYYY-MM-DD`
-- **Skills:** `indie-app-opportunity-research` + `competitor-app-profiling`
+## Migration History
 
-## Wichtige Heuristiken
+### 2026-05-16: GitHub → Vault Migration
 
-| Profil | Popularity | Difficulty | Opportunity | Interpretation |
-|--------|-----------|-----------|-------------|----------------|
-| **Sweet Spot** | >50 | <50 | >50 | Bestes Target |
-| **Hidden Gem** | 25–40 | <25 | 30–40 | Quick Win |
-| **Moderate** | >50 | 50–65 | 40–50 | Differenzierung nötig |
-| **Contrarian Void** | <35 | >50 | <25 | 🚫 AVOID |
+**Problem:** Scattered `app-challenge-YYYY-MM-DD` repos under `datasteviee/` created repo sprawl, no discoverability, no unified search.
 
-## Verifizierte Revenue Anchors
+**Solution:** Centralize all research in the Obsidian Vault at `/root/vault/Brain/Projects/AppChallenges/`.
 
-- Slopes (Curtis Herbert): ~$150K–$500K ARR
-- Dark Noise (Charlie Chapman): >$5K MRR
-- One Sec (Frederik Riedel): $10K → $25K MRR
-- Max (Portfolio, 12+ apps): **$24K MRR**
-- Danny Postma (AI Headshots): **$65K erster Monat**
-- Peter Levels (levels.fyi): **$200K+ MRR** combined
+**Changes:**
+- Both cronjobs now use `workdir: /root/vault`
+- Output: Markdown PRDs in `YYYY-W##/` folders (not GitHub repos)
+- Git workflow: atomic `pull --rebase` → write → commit → push to `steviee/vault.git`
+- README.md index auto-updated per run
+- Legacy prompts archived in `prompts/*-prompt.md`
 
-## Workflow (7 Phasen)
+---
 
-1. **RespecASO Recherche** — Live ASO Scoring (max. 5 Keywords/Batch)
-2. **Web-Verifikation** — iTunes API + Revenue-Check
-3. **Community Deep Dive** — Reddit → Bluesky → Quora
-4. **Competitive Feature Gap Analysis** — Battle Cards
-5. **Machbarkeits-Filter** — 7-Tage-Sprint-Check (BUILD/DEFER/DROP)
-6. **Mini-PRD** — Title, Subtitle, Description, USP, Tech Stack, Monetization
-7. **GitHub Push** — README.md, RESEARCH.md, project.yml
+## Vault Conventions
 
-## Sicherheit & Hardened Environment
+- **Week folders:** `YYYY-W##/` (ISO calendar week)
+- **iOS PRD:** `YYYY-MM-DD-{keyword-slug}.md`
+- **Android PRD:** `YYYY-MM-DD-{keyword-slug}.android.md`
+- **Frontmatter schema:** `date`, `keyword`, `platform`, `aso_pop`, `aso_diff`, `aso_opp`, `aso_insight`, `verdict`, `revenue_anchor`
+- **Rotation categories:**
+  - Day 1: Exotic Pet (skip built)
+  - Day 2: AI-Speech/Writing
+  - Day 3: Hobby/Enthusiast
+  - Day 4: Family/Household
+  - Day 5: Micro-Education
+  - Day 6: Free choice
+  - Day 7: Deep-dive top performer
 
-- Keine `curl | python3` Pipes (HIGH risk)
-- Alle `curl` → `/tmp/`, dann Python von Disk
-- Kein `&` Backgrounding in Command Strings
-- Kein `grep -oP` auf Play Store HTML (stattdessen `browser_snapshot`)
+---
 
 ## License
 
-Internes Archiv für das Portfolio von datasteviee.
+MIT — These prompts are public reference material. The actual cronjobs run on a private Hermes Agent instance.
